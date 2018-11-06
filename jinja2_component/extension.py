@@ -11,86 +11,84 @@ registered "components" and dispatch correctly.
 
 """
 import dataclasses
+from dataclasses import MISSING
 from typing import Set
 
-from jinja2 import nodes
 from jinja2.ext import Extension
+from jinja2.nodes import Include, Macro, Scope, Assign, Name, Const
 
-from jinja2_component.context import make_context
+TEMPLATE_FIELD_NAME = 'template'
+CHILDREN_FIELD_NAME = 'children'
+
+CHILDREN_MACRO_NAME = 'children'
 
 
 class ComponentExtension(Extension):
     tags: Set
-    tag_name: str
 
     def parse(self, parser):
         # Get the component for the tag name that we matched on
-        self.tag_name = parser.stream.current[2]
-        component_class = self.environment.components[self.tag_name]
+        tag_name = parser.stream.current[2]
+        component_class = self.environment.components[tag_name]
         field_names = [f.name for f in dataclasses.fields(component_class)]
-        has_children = 'children' in field_names
+        has_children = CHILDREN_FIELD_NAME in field_names
 
         lineno = next(parser.stream).lineno
 
-        args = []
+        node = Scope(lineno=lineno)
 
-        # Parse the key/value pairs out of the AST structure into
-        # a regular dict.
-        self.props = dict()
+        # List of Assign nodes for tag properties
+        props = []
 
-        targets = []
         while parser.stream.current.type != 'block_end':
             lineno = parser.stream.current.lineno
-            if targets:
+            if props:
                 parser.stream.expect('comma')
             target = parser.parse_assign_target()
-            target.set_ctx('param')
-            targets.append(target)
             parser.stream.expect('assign')
             value = parser.parse_expression()
-            args.append(value)
-            self.props[target.name] = value.value
-            # args.append(value.value)
+            props.append(Assign(target, value, lineno=lineno))
 
-        # context = ContextReference()
-        # args.append(context)
+        # Assign nodes from dataclass fields and the list of tag properties
+        assign_nodes = self._dataclass_assign_nodes(component_class, lineno) + props
+
         if has_children:
-            end_tag_name = f'name:end{self.tag_name}'
-            body = parser.parse_statements([end_tag_name], drop_needle=True)
+            inner_block = list(parser.parse_statements(
+                ('name:end' + tag_name,),
+                drop_needle=True)
+            )
+            # create children() macro
+            children_macro = Macro()
+            children_macro.name = CHILDREN_MACRO_NAME
+            children_macro.args = []
+            children_macro.defaults = []
+            children_macro.body = inner_block
+            children_macro_nodes = [children_macro]
         else:
-            body = ''
+            children_macro_nodes = []
 
-        call = self.call_method('_callblock', args=args)
-        result = nodes.CallBlock(call, [], [], body)
-        result.set_lineno(lineno)
-        return result
+        # include tag template
+        include_tag = Include()
+        include_tag.template = Name(TEMPLATE_FIELD_NAME, 'load')
+        include_tag.ignore_missing = False
+        include_tag.with_context = True
 
-    def _callblock(self, *args, caller):
-        env = self.environment
-        component_class = env.components[self.tag_name]
+        node.body = assign_nodes + children_macro_nodes + [include_tag, ]
 
-        # Render any child nodes inside the "tags" for this
-        # component's usage.
-        # TODO Find a way for this to not get access to the
-        # global context
-        children = caller()
+        return node
 
-        # Make an instance of this component, to be used as the
-        # template context
-        di = dict()
-        component = make_context(
-            component_class,
-            self.props,
-            di,
-            children=children
-        )
+    @staticmethod
+    def _dataclass_assign_nodes(component_class, lineno):
+        result = []
 
-        # Now render
-        template = env.load_template(component)
-        if template is None:
-            # No Jinja2 template, this component should implement render
-            result = component.render()
-        else:
-            d = dataclasses.asdict(component)
-            result = template.render(**d)
+        def assign_node_for_field(name, value):
+            return Assign(Name(name, 'store', lineno=lineno), Const(value), lineno=lineno)
+
+        for f in dataclasses.fields(component_class):
+            if f.default is not MISSING:
+                result.append(assign_node_for_field(f.name, f.default))
+            elif f.default_factory is not MISSING:
+                # TODO here we could use `Call` node as the assigning expression
+                result.append(assign_node_for_field(f.name, f.default_factory()))
+
         return result
