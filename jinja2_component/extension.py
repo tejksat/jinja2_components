@@ -17,6 +17,7 @@ from typing import Set
 from jinja2 import nodes
 from jinja2.ext import Extension
 
+TMP_COMPONENT_DICT_NAME = '__component'
 COMPONENT_DICT_NAME = 'component'
 
 TEMPLATE_FIELD_NAME = 'template'
@@ -57,10 +58,20 @@ class ComponentExtension(Extension):
         if component_dict_update_items:
             component_dict_delta = nodes.Dict(component_dict_update_items)
             # `Getattr` for "update" function of the dictionary "component"
-            update_component_dict_fun = nodes.Getattr(nodes.Name(COMPONENT_DICT_NAME, 'load'), 'update', 'load')
+            update_component_dict_fun = nodes.Getattr(nodes.Name(TMP_COMPONENT_DICT_NAME, 'load'), 'update', 'load')
             # `Call` for `component.update(<prop name>, <prop value>)`
             call_component_dict_update = nodes.Call(update_component_dict_fun, [component_dict_delta], [], None, None)
             prepare_component_dict.append(nodes.ExprStmt(call_component_dict_update))
+
+        # assign `component = __component` and `__component = None`
+        prepare_component_dict.extend([
+            nodes.Assign(nodes.Name(COMPONENT_DICT_NAME, 'store', lineno=lineno),
+                         nodes.Name(TMP_COMPONENT_DICT_NAME, 'load', lineno=lineno),
+                         lineno=lineno),
+            nodes.Assign(nodes.Name(TMP_COMPONENT_DICT_NAME, 'store', lineno=lineno),
+                         nodes.Const(None, lineno=lineno),
+                         lineno=lineno)
+        ])
 
         if has_children:
             inner_block = list(parser.parse_statements(
@@ -106,4 +117,4 @@ class ComponentExtension(Extension):
         component_dict = nodes.Dict(items, lineno=lineno)
 
         # `Assign` dictionary to the "component" name
-        return nodes.Assign(nodes.Name(COMPONENT_DICT_NAME, 'store', lineno=lineno), component_dict, lineno=lineno)
+        return nodes.Assign(nodes.Name(TMP_COMPONENT_DICT_NAME, 'store', lineno=lineno), component_dict, lineno=lineno)
