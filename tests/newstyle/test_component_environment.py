@@ -48,7 +48,7 @@ def test_component_with_children():
     env.loader = DictLoader({
         'main.html': '<html><body>'
                      '{% ComponentWithChildren %}'
-                     '<span>Body of the tag for the {{ template }}</span>'
+                     '<span>Body of the tag for the {{ component.template }}</span>'
                      '{% endComponentWithChildren %}'
                      '</body></html>',
         'component.html': '<div class="header"></div>'
@@ -112,12 +112,12 @@ def test_dataclass_fields_render():
                         '{% PaintTool paint_color = "green", size = 15, properties = ["soft", "tapered"] %}'
                         '</body></html>',
         'paint_tool.html': '<ul>'
-                           '<li>{{ paint_color }}</li>'
-                           '<li>{{ effect }}</li>'
-                           '<li>{{ default_color }}</li>'
-                           '<li>colors: {{ color_list|join(", ") }}</li>'
-                           '<li>{{ size }}</li>'
-                           '<li>properties: {{ properties|join(", ") }}</li>'
+                           '<li>{{ component.paint_color }}</li>'
+                           '<li>{{ component.effect }}</li>'
+                           '<li>{{ component.default_color }}</li>'
+                           '<li>colors: {{ component.color_list|join(", ") }}</li>'
+                           '<li>{{ component.size }}</li>'
+                           '<li>properties: {{ component.properties|join(", ") }}</li>'
                            '</ul>',
     })
     template = env.get_template('painter.html')
@@ -160,13 +160,13 @@ def test_nested_elements():
                      '{% endArticle %}'
                      '{% endPage %}'
                      '</html>',
-        'page.html': '<head><title>{{ title }}</title><head><body>{{ children() }}</body>',
+        'page.html': '<head><title>{{ component.title }}</title><head><body>{{ children() }}</body>',
         'navigation.html': '<div class="navigation">'
                            '<div class="button prev">Prev</div>'
                            '<div class="button next">Next</div>'
                            '</div>',
         'article.html': '<div class="article">'
-                        '<div class="title">{{ title }}</div>'
+                        '<div class="title">{{ component.title }}</div>'
                         '<div class="content">{{ children() }}</div>'
                         '</div>',
     })
